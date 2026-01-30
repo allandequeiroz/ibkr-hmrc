@@ -77,7 +77,7 @@ Adding owner's loan from `owners_loan.xlsx` (Barclays and any other bank in that
 - **Amount > 0** (company receives): DR 1103, CR 2101 (director lent to company).  
 - **Amount < 0** (company pays): DR 2101, CR 1103 (company repaid director).
 
-**U6361921** rows are internal transfers (IBKR to IBKR); the company side is already in the Flex Query as deposits. We do **not** post those again from owners_loan.
+**U6361921** rows (internal IBKR → company IBKR): Originally skipped on the assumption the company side was in the Flex Query. In practice the Flex often does not include those internal transfers as deposits (Discussion 5: only £10,500 captured as deposits; £499k from U6361921 missing). So the report understated director lending. **As of 2026-01-30**: U6361921 is **included**: Director → Business from U6361921 posts **DR 1101 CR 2101** (IBKR cash and director loan). Non-U6361921 (Barclays/Wise) still posts DR 1103 CR 2101. The report now shows total director funding in the period (e.g. 514,005.62 in, 513,275.13 out) including internal transfers.
 
 **Reconciliation**:
 
@@ -86,6 +86,6 @@ Adding owner's loan from `owners_loan.xlsx` (Barclays and any other bank in that
 
 Implementation: new argument `--owners-loan` (path to `owners_loan.xlsx`), loader in code, post to 1103/2101 after Flex processing, include 1103 in book_cash for QBO reconciliation.
 
-**2026-01-30 – Improved owners_loan.xlsx format**: The spreadsheet was restructured into two explicit sections: **Summary: Director -> Business** (money in; e.g. total -514,005.62) and **Summary: Business -> Director** (money out; e.g. total 513,275.13). The parser in `apply_owners_loan()` detects these section headers in the first column and posts by section (Director->Business → DR 1103 CR 2101; Business->Director → DR 2101 CR 1103), using `abs(Amount)` so sign in the sheet does not need to match a single convention. U6361921 rows in the "Director -> Business" section are still skipped to avoid double-counting with Flex. Fallback: if section headers are not found, sign convention (Amount &gt; 0 = company receives, &lt; 0 = company pays) is used.
+**2026-01-30 – Improved owners_loan.xlsx format**: The spreadsheet was restructured into two explicit sections: **Summary: Director -> Business** (money in; e.g. total -514,005.62) and **Summary: Business -> Director** (money out; e.g. total 513,275.13). The parser in `apply_owners_loan()` detects these section headers in the first column and posts by section (Director->Business → DR 1103 CR 2101; Business->Director → DR 2101 CR 1103), using `abs(Amount)` so sign in the sheet does not need to match a single convention. U6361921 rows in "Director -> Business" now post to 1101/2101 (internal IBKR); other accounts post to 1103/2101. Fallback: if section headers are not found, sign convention (Amount &gt; 0 = company receives, &lt; 0 = company pays) is used.
 
 **2026-01-30 – owners_loan.pdf support**: If the Excel file uses references/formulas that pandas reads as NaN or incorrectly, `--owners-loan` can point to **analysis/owners_loan.pdf** instead. The PDF parser (pdfplumber) extracts text and uses standalone totals (-514,005.62 and 513,275.13) to split Director->Business vs Business->Director blocks, so only loan movements are posted (no salary/counter-credit from page 1). Requires `pip install pdfplumber`.

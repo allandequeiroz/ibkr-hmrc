@@ -700,9 +700,10 @@ def _parse_owners_loan_pdf(path: Path) -> tuple[list[tuple[date, str, Decimal]],
             if t:
                 full_text += t + "\n"
     lines = [ln.strip() for ln in full_text.splitlines() if ln.strip()]
-    in_rows: list[tuple[date, str, Decimal]] = []
-    out_rows: list[tuple[date, str, Decimal]] = []
-    seen: set[tuple[str, str, str]] = set()
+    # Sum amounts by (date, account) so multiple same-day same-account rows (e.g. three 100k) total correctly,
+    # and repeated blocks (e.g. PDF page 2) don't double-count.
+    in_sums: dict[tuple[date, str], Decimal] = {}
+    out_sums: dict[tuple[date, str], Decimal] = {}
 
     def parse_row(line: str) -> tuple[date, str, Decimal] | None:
         m = _OWNERS_LOAN_PDF_ROW.match(line)
@@ -716,22 +717,13 @@ def _parse_owners_loan_pdf(path: Path) -> tuple[list[tuple[date, str, Decimal]],
             return None
         return (dt, account_s, amt)
 
-    def _norm(dt: date, account_s: str, amt: Decimal) -> tuple:
-        return (str(dt), account_s, str(amt.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)))
-
     def add_in(dt: date, account_s: str, amt: Decimal) -> None:
-        key = _norm(dt, account_s, amt)
-        if key in seen:
-            return
-        seen.add(key)
-        in_rows.append((dt, account_s, amt))
+        key = (dt, account_s)
+        in_sums[key] = in_sums.get(key, Decimal("0")) + amt
 
     def add_out(dt: date, account_s: str, amt: Decimal) -> None:
-        key = _norm(dt, account_s, amt)
-        if key in seen:
-            return
-        seen.add(key)
-        out_rows.append((dt, account_s, amt))
+        key = (dt, account_s)
+        out_sums[key] = out_sums.get(key, Decimal("0")) + amt
 
     # Look for block-delimiting totals (normalize: no commas)
     idx_first_total = -1  # line that is -514,005.62
@@ -750,12 +742,14 @@ def _parse_owners_loan_pdf(path: Path) -> tuple[list[tuple[date, str, Decimal]],
                 pass
 
     if idx_first_total >= 0 and idx_second_total >= 0:
-        # Block-based: rows before first total = Director -> Business; between totals = Business -> Director
+        # Block-based: rows before first total = Director -> Business; between totals = Business -> Director.
+        # If PDF repeats the block on page 2, the same (date, account, amount) can appear twice; sum by (date, account)
+        # and cap Director -> Business total at the PDF's first total (e.g. -514,005.62) to avoid double-counting.
         for i in range(idx_first_total):
             row = parse_row(lines[i])
             if row and row[2] != 0:
                 dt, account_s, amt = row
-                if amt < 0 and account_s != "U6361921":
+                if amt < 0:
                     add_in(dt, account_s, abs(amt))
         for i in range(idx_first_total + 1, idx_second_total):
             row = parse_row(lines[i])
@@ -763,6 +757,18 @@ def _parse_owners_loan_pdf(path: Path) -> tuple[list[tuple[date, str, Decimal]],
                 dt, account_s, amt = row
                 if amt > 0:
                     add_out(dt, account_s, amt)
+        # If PDF repeats Director -> Business block on two pages, total_in can be ~2x; cap at first total
+        try:
+            first_total_abs = abs(Decimal(lines[idx_first_total].replace(",", "").strip()))
+        except Exception:
+            first_total_abs = None
+        total_in = sum(in_sums.values())
+        if first_total_abs and total_in > first_total_abs + Decimal("1"):
+            # Scale down proportionally so total = first_total_abs (preserve 1101 vs 1103 split)
+            scale = first_total_abs / total_in
+            in_sums = {(dt, acct): (amt * scale).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP) for (dt, acct), amt in in_sums.items()}
+        in_rows = [(dt, acct, amt.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)) for (dt, acct), amt in in_sums.items() if amt != 0]
+        out_rows = [(dt, acct, amt.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)) for (dt, acct), amt in out_sums.items() if amt != 0]
     else:
         # Fallback: sign-based for all lines
         for line in lines:
@@ -776,21 +782,29 @@ def _parse_owners_loan_pdf(path: Path) -> tuple[list[tuple[date, str, Decimal]],
                 continue
             dt, account_s, amt = row
             if amt < 0:
-                if account_s != "U6361921":
-                    add_in(dt, account_s, abs(amt))
+                add_in(dt, account_s, abs(amt))
             else:
                 add_out(dt, account_s, amt)
+        in_rows = [(dt, acct, amt.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)) for (dt, acct), amt in in_sums.items() if amt != 0]
+        out_rows = [(dt, acct, amt.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)) for (dt, acct), amt in out_sums.items() if amt != 0]
     return (in_rows, out_rows)
 
 
 def _apply_owners_loan_from_pdf(generator: TrialBalanceGenerator, path: Path, period_end: date) -> None:
-    """Post owner's loan from PDF using parsed in/out rows."""
+    """Post owner's loan from PDF using parsed in/out rows.
+    Director -> Business: U6361921 (internal IBKR) -> DR 1101 CR 2101; other (Barclays/Wise) -> DR 1103 CR 2101.
+    Business -> Director: DR 2101 CR 1103.
+    """
     in_rows, out_rows = _parse_owners_loan_pdf(path)
     for dt, account_s, amt_abs in in_rows:
         if dt > period_end:
             continue
-        generator._debit("1103", amt_abs, f"Owner's loan in ({account_s})")
-        generator._credit("2101", amt_abs, f"Owner's loan in ({account_s})")
+        if account_s == "U6361921":
+            generator._debit("1101", amt_abs, f"Owner's loan in ({account_s})")
+            generator._credit("2101", amt_abs, f"Owner's loan in ({account_s})")
+        else:
+            generator._debit("1103", amt_abs, f"Owner's loan in ({account_s})")
+            generator._credit("2101", amt_abs, f"Owner's loan in ({account_s})")
     for dt, account_s, amt_abs in out_rows:
         if dt > period_end:
             continue
@@ -800,11 +814,11 @@ def _apply_owners_loan_from_pdf(generator: TrialBalanceGenerator, path: Path, pe
 
 def apply_owners_loan(generator: TrialBalanceGenerator, path: Path, period_end: date) -> None:
     """
-    Load owner's loan movements from Excel or PDF and post to 1103 (Cash at Bank - Other)
-    and 2101 (Director's / Owner's Loan).
+    Load owner's loan movements from Excel or PDF and post to 1103 (Cash at Bank - Other),
+    1101 (Cash at Bank - USD for internal IBKR transfers), and 2101 (Director's / Owner's Loan).
 
-    - If path is .pdf: parses PDF text (no formulas). Negative = Director -> Business (skip U6361921),
-      positive = Business -> Director. Requires pdfplumber.
+    - If path is .pdf: parses PDF text (no formulas). Director -> Business: U6361921 -> 1101/2101,
+      other -> 1103/2101. Business -> Director -> 2101/1103. Requires pdfplumber.
     - If path is .xlsx: expects sheet 'owners loan' with Date, Account, Amount. Supports
       "Summary: Director -> Business" / "Summary: Business -> Director" sections; else sign convention.
     """
@@ -860,14 +874,16 @@ def apply_owners_loan(generator: TrialBalanceGenerator, path: Path, period_end: 
         if amt == 0:
             continue
         acct_str = str(raw_account).strip().upper() if pd.notna(raw_account) else ""
-        # Director -> Business: company receives (skip U6361921 – in Flex)
+        # Director -> Business: U6361921 (internal IBKR) -> 1101/2101; other (Barclays/Wise) -> 1103/2101
         if current_section == "in":
-            if acct_str == "U6361921":
-                continue
             amt_abs = abs(amt)
             memo = f"Owner's loan in ({raw_account})"
-            generator._debit("1103", amt_abs, memo)
-            generator._credit("2101", amt_abs, memo)
+            if acct_str == "U6361921":
+                generator._debit("1101", amt_abs, memo)
+                generator._credit("2101", amt_abs, memo)
+            else:
+                generator._debit("1103", amt_abs, memo)
+                generator._credit("2101", amt_abs, memo)
         # Business -> Director: company pays
         else:
             amt_abs = abs(amt)
@@ -1034,7 +1050,15 @@ def _render_qbo_reconciliation(rec: dict[str, Any]) -> str:
     out.append(f"""<tr><td>Difference (expenses)</td><td class="number">{rec['diff_exp']:,.2f}</td></tr>""")
     out.append(f"""<tr><td>{'✓ Expenses aligned (within £1)' if rec['aligned_exp'] else '⚠ Variance'}</td><td></td></tr>""")
     out.append("</tbody></table>")
-    out.append("<div class='meta'>Book figures from trial balance (IBKR). QBO from Transaction Detail by Account and Transaction List by Date (Cash basis, same period).</div>")
+    out.append(
+        "<div class='meta'>"
+        "Book cash = net (DR−CR) of <strong>all</strong> TB cash (1100+1101+1102+1103): IBKR + Barclays/1103. "
+        "It can be <strong>negative</strong> when outflows in the period exceed inflows (e.g. IBKR net outflow). "
+        "QBO bank = <strong>one</strong> bank account’s closing balance (e.g. Barclays). "
+        "Different scope: we are not comparing the same pool. Reconcile IBKR vs IBKR and Barclays vs Barclays separately for like‑for‑like. "
+        "Book expenses = TB (IBKR fees/interest). QBO = all outflows in the report. Same period, Cash basis."
+        "</div>"
+    )
     out.append("</div>")
     return "\n".join(out)
 
@@ -1285,7 +1309,7 @@ def main():
     parser.add_argument('--company', default='Investment Holding Company', help='Company name')
     parser.add_argument('--output', type=Path, help='Output HTML file path')
     parser.add_argument('--management-expenses', type=Path, help='CSV of management/deductible expenses to include in tax computation (description, amount_gbp, date). Include all allowable expenses not in the Flex data.')
-    parser.add_argument('--owners-loan', type=Path, default=None, help="Excel (owners_loan.xlsx) or PDF (owners_loan.pdf) with director's loan movements. Company bank rows post to 1103/2101; U6361921 excluded (in Flex). Use PDF if the spreadsheet uses references/formulas.")
+    parser.add_argument('--owners-loan', type=Path, default=None, help="Excel (owners_loan.xlsx) or PDF (owners_loan.pdf) with director's loan movements. U6361921 (internal IBKR) -> 1101/2101; other bank -> 1103/2101; repayments -> 2101/1103. Use PDF if the spreadsheet uses references/formulas.")
     parser.add_argument('--qbo-accounts', type=Path, default=None, help='QBO Transaction Detail by Account (bank) – include to embed QuickBooks reconciliation in the report')
     parser.add_argument('--qbo-date', type=Path, default=None, help='QBO Transaction List by Date (expenses) – include to embed QuickBooks reconciliation in the report')
 

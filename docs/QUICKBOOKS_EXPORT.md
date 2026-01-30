@@ -118,3 +118,20 @@ python scripts/reconcile_qbo.py --flex analysis/business.csv --period-end 2026-0
 
 **Option B** gives only the reconciliation as text (for `reconcile_qbo.py`: `--flex`, `--period-end`, `--qbo-accounts`, `--qbo-date`, `-o` for output path). The script runs the trial balance pipeline, loads QBO exports, and compares **bank** (book cash vs QBO balance; reconciled if difference &lt; 1p) and **expenses** (book vs QBO outflows; aligned if difference &lt; £1).
 
+---
+
+## 7. Understanding the bank reconciliation numbers
+
+The report shows:
+
+- **Book cash (1100+1101+1102+1103)** = net balance (debits − credits) of *all* cash accounts in the trial balance: IBKR (1100/1101/1102) and Barclays/other (1103). This can be **negative** when total cash outflows in the period (trades, withdrawals, fees, repayments) exceed inflows (deposits, sales). So a negative book cash does **not** mean “you have negative money”; it means “net movement across those four accounts is a net outflow.”
+- **QBO bank (end Balance)** = the **closing balance** of *one* bank account in QuickBooks (e.g. Barclays), usually a positive number (what’s in that bank at period end).
+- **Difference (bank)** = Book cash − QBO bank. So if book cash is −1,166,509.51 and QBO is 772,686.87, the difference is −1,939,196.38.
+
+**Why it “smells”:** We are **not** comparing the same thing.
+
+- **Book** = net of *all* company cash in the TB (IBKR + 1103). IBKR alone can have a large negative net (huge turnover, more out than in). 1103 is only the owners’ loan movements (e.g. 15k in, 513k out → net −498k). So the combined net can easily be negative.
+- **QBO** = one bank’s closing balance (e.g. Barclays 772k).
+
+So: **different scope** (all TB cash vs one bank) and **different meaning** (net TB position vs bank balance). The difference is expected. For a proper like‑for‑like check, reconcile **IBKR book vs IBKR** and **Barclays book (1103 or full ledger) vs Barclays in QBO** separately. The report’s “QuickBooks Reconciliation” section is a high‑level comparison; the note under the table in the HTML explains this.
+

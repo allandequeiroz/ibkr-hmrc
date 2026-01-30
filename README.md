@@ -38,7 +38,7 @@ python ibkr_trial_balance.py <flex_query.csv> \
 | `--company` | No | Company name for report header |
 | `--output` | No | Output file path (default: `trial_balance_YYYY-MM-DD.html`) |
 | `--management-expenses` | Yes when you have such expenses | CSV of management/deductible expenses to include in the tax computation (description, amount_gbp, date). Include all allowable expenses not already in the Flex data so taxable profit is correct. |
-| `--owners-loan` | No | Excel (owners_loan.xlsx) or **PDF** (owners_loan.pdf) with director's loan movements. Company bank rows post to 1103/2101; U6361921 excluded (in Flex). Use PDF if the spreadsheet uses references/formulas that don't read correctly. |
+| `--owners-loan` | No | Excel or **PDF** with director's loan movements. U6361921 (internal IBKR) → 1101/2101; other bank → 1103/2101; repayments → 2101/1103. Use PDF if the spreadsheet uses references/formulas that don't read correctly. |
 | `--qbo-accounts` | No | QBO Transaction Detail by Account (bank). When provided with `--qbo-date`, embeds QuickBooks reconciliation in the same HTML report. |
 | `--qbo-date` | No | QBO Transaction List by Date (expenses). When provided with `--qbo-accounts`, embeds QuickBooks reconciliation in the same HTML report. |
 
