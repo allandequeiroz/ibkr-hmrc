@@ -21,8 +21,19 @@ from dataclasses import dataclass, field
 from datetime import datetime, date
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Any
 import requests
+
+# Tax computation (Section 104 + CT): allow import when run from repo root or scripts/
+_SCRIPT_DIR = Path(__file__).resolve().parent
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+try:
+    from section_104_pooling import Section104Pool
+    from tax_computation import TaxComputation
+except ImportError:
+    Section104Pool = None  # type: ignore
+    TaxComputation = None  # type: ignore
 
 # ============================================================================
 # HMRC Exchange Rates
@@ -376,6 +387,9 @@ class TrialBalanceGenerator:
         # Cost tracking per symbol (FIFO)
         self.holdings: dict[str, list[LotHolding]] = defaultdict(list)
         
+        # Section 104 pooling for UK tax (CT600) - STK/OPT only
+        self.section_104: Optional[Any] = Section104Pool() if Section104Pool else None
+        
         # Detailed journal entries for audit trail
         self.journal_entries: list[dict] = []
     
@@ -415,6 +429,11 @@ class TrialBalanceGenerator:
         
         for trade in sorted_trades:
             self._process_trade(trade)
+            if self.section_104 and trade.asset_class in ('STK', 'OPT'):
+                self._process_trade_section_104(trade)
+        
+        if self.section_104:
+            self.section_104.flush_all_pending()
         
         for tx in self.parser.cash_transactions:
             self._process_cash_transaction(tx)
@@ -470,6 +489,19 @@ class TrialBalanceGenerator:
                 self._credit(gain_account, gain_loss, f"Gain on {trade.symbol}")
             elif gain_loss < 0:
                 self._debit(loss_account, abs(gain_loss), f"Loss on {trade.symbol}")
+    
+    def _process_trade_section_104(self, trade: Trade) -> None:
+        """Feed STK/OPT trade to Section 104 pool for UK tax computation."""
+        if not self.section_104:
+            return
+        if trade.is_buy:
+            cost_foreign = abs(trade.proceeds) + trade.commission
+            cost_gbp = self.rate_cache.to_gbp(cost_foreign, trade.currency, trade.date)
+            self.section_104.add_acquisition(trade.date, trade.symbol, trade.quantity, cost_gbp)
+        else:
+            net_proceeds_foreign = abs(trade.proceeds) - trade.commission
+            net_proceeds_gbp = self.rate_cache.to_gbp(net_proceeds_foreign, trade.currency, trade.date)
+            self.section_104.remove_disposal(trade.date, trade.symbol, trade.quantity, net_proceeds_gbp)
     
     def _calculate_fifo_cost(self, symbol: str, quantity: Decimal) -> Decimal:
         """Calculate cost of sold shares using FIFO."""
@@ -628,12 +660,148 @@ class TrialBalanceGenerator:
 # HTML Report Generator
 # ============================================================================
 
+def _render_tax_sections(tax_comp: Any, generator: TrialBalanceGenerator) -> str:
+    """Render tax computation, CT liability, Section 104 schedule, CT600, variance."""
+    out: list[str] = []
+    
+    # Tax Computation Schedule
+    tp = tax_comp.taxable_profit or Decimal('0')
+    ct = tax_comp.corporation_tax or Decimal('0')
+    rate_pct = (ct / tp * 100).quantize(Decimal('0.01')) if tp and tp > 0 else Decimal('0')
+    div_exempt = tax_comp.calculate_dividend_exemption()
+    gains = tax_comp.calculate_capital_gains()
+    mgmt_ibkr, mgmt_other = tax_comp.calculate_management_expenses()
+    ir = tax_comp.interest_relief_result
+    allow_int = ir.allowable_interest if ir else Decimal('0')
+    int_inc = generator.accounts.get('4100')
+    int_inc_cr = int_inc.credit if int_inc else Decimal('0')
+    non_trading = (int_inc_cr - mgmt_ibkr - mgmt_other - allow_int).quantize(Decimal('0.01'))
+    
+    out.append("""
+        <div class="card" style="border-radius: 8px;">
+            <div class="section-title">Tax Computation Schedule</div>
+            <table>
+                <thead><tr><th>Description</th><th class="number">Amount (£)</th></tr></thead>
+                <tbody>""")
+    out.append(f"""<tr><td>Dividend income (exempt)</td><td class="number">{div_exempt:,.2f}</td></tr>""")
+    out.append(f"""<tr><td>Interest received (taxable)</td><td class="number">{int_inc_cr:,.2f}</td></tr>""")
+    out.append(f"""<tr><td>Less: Management expenses (IBKR)</td><td class="number">({mgmt_ibkr:,.2f})</td></tr>""")
+    out.append(f"""<tr><td>Less: Management expenses (other)</td><td class="number">({mgmt_other:,.2f})</td></tr>""")
+    out.append(f"""<tr><td>Less: Interest paid (allowable)</td><td class="number">({allow_int:,.2f})</td></tr>""")
+    out.append(f"""<tr><td><strong>Taxable non-trading profit</strong></td><td class="number"><strong>{non_trading:,.2f}</strong></td></tr>""")
+    out.append(f"""<tr><td>Capital gains (Section 104)</td><td class="number">{gains:,.2f}</td></tr>""")
+    out.append(f"""<tr class="total-row"><td><strong>Total taxable profit (CT600)</strong></td><td class="number"><strong>{tp:,.2f}</strong></td></tr>""")
+    out.append("</tbody></table></div>")
+    
+    # Interest Relief Schedule (if interest paid)
+    if ir and ir.total_interest_paid > 0:
+        out.append("""
+        <div class="card" style="border-radius: 8px;">
+            <div class="section-title">Interest Relief (ICR)</div>
+            <table>
+                <thead><tr><th>Description</th><th class="number">Amount (£)</th></tr></thead>
+                <tbody>""")
+        out.append(f"""<tr><td>Interest paid</td><td class="number">{ir.total_interest_paid:,.2f}</td></tr>""")
+        out.append(f"""<tr><td>Taxable earnings (proxy)</td><td class="number">{ir.taxable_earnings:,.2f}</td></tr>""")
+        out.append(f"""<tr><td>ICR limit (30%)</td><td class="number">{ir.icr_limit:,.2f}</td></tr>""")
+        out.append(f"""<tr><td>Allowable interest</td><td class="number">{ir.allowable_interest:,.2f}</td></tr>""")
+        out.append(f"""<tr><td>Disallowed (carry forward)</td><td class="number">{ir.disallowed_interest:,.2f}</td></tr>""")
+        if ir.warning:
+            out.append(f'<tr><td colspan="2" class="meta">{ir.warning}</td></tr>')
+        out.append("</tbody></table></div>")
+    
+    # Corporation Tax Liability
+    out.append("""
+        <div class="card" style="border-radius: 8px;">
+            <div class="section-title">Corporation Tax Liability</div>
+            <table>
+                <thead><tr><th>Description</th><th class="number">Amount (£)</th></tr></thead>
+                <tbody>""")
+    out.append(f"""<tr><td>Taxable profit</td><td class="number">{tp:,.2f}</td></tr>""")
+    out.append(f"""<tr><td>Effective rate</td><td class="number">{rate_pct:.2f}%</td></tr>""")
+    out.append(f"""<tr class="total-row"><td><strong>Corporation Tax due</strong></td><td class="number"><strong>{ct:,.2f}</strong></td></tr>""")
+    out.append("</tbody></table><div class='meta'>Payment due 9 months after period end.</div></div>")
+    
+    # Tax Shield Summary
+    div_tax_saved = (div_exempt * (rate_pct / 100)).quantize(Decimal('0.01')) if rate_pct else Decimal('0')
+    out.append("""
+        <div class="card" style="border-radius: 8px;">
+            <div class="section-title">Tax Shield Summary</div>
+            <table>
+                <thead><tr><th>Relief</th><th>Status</th><th class="number">Amount / Tax saved (£)</th></tr></thead>
+                <tbody>""")
+    out.append(f"""<tr><td>Dividend exemption</td><td>✓ Applied</td><td class="number">{div_exempt:,.2f} (tax saved {div_tax_saved:,.2f})</td></tr>""")
+    out.append("""<tr><td>SSE (Substantial Shareholding)</td><td>✗ Not applicable</td><td class="number">—</td></tr>""")
+    out.append(f"""<tr><td>Management expense relief</td><td>✓ Applied</td><td class="number">{mgmt_ibkr + mgmt_other:,.2f}</td></tr>""")
+    if ir and ir.total_interest_paid > 0:
+        out.append(f"""<tr><td>Interest relief (ICR)</td><td>⚠ Partial</td><td class="number">Allowable {ir.allowable_interest:,.2f}</td></tr>""")
+    out.append("</tbody></table></div>")
+    
+    # Section 104 Pooling Schedule (disposals)
+    disposals = tax_comp.get_disposal_summary()
+    if disposals:
+        out.append("""
+        <div class="card" style="border-radius: 8px;">
+            <div class="section-title">Section 104 Disposals (Tax)</div>
+            <table>
+                <thead>
+                    <tr><th>Date</th><th>Symbol</th><th class="number">Qty</th><th class="number">Proceeds (£)</th><th class="number">Cost (£)</th><th class="number">Gain/(Loss) (£)</th><th>Rule</th></tr>
+                </thead>
+                <tbody>""")
+        for d in disposals[:100]:  # cap for readability
+            out.append(f"""<tr>
+                <td>{d.date}</td><td>{d.symbol}</td><td class="number">{d.quantity:,.4f}</td>
+                <td class="number">{d.proceeds_gbp:,.2f}</td><td class="number">{d.cost_gbp:,.2f}</td>
+                <td class="number">{d.gain_loss_gbp:,.2f}</td><td>{d.matching_rule}</td>
+            </tr>""")
+        if len(disposals) > 100:
+            out.append(f'<tr><td colspan="7" class="meta">… and {len(disposals) - 100} more disposals</td></tr>')
+        net_g = tax_comp.calculate_capital_gains()
+        out.append(f"""<tr class="total-row"><td colspan="5"><strong>Net capital gains</strong></td><td class="number"><strong>{net_g:,.2f}</strong></td><td></td></tr>""")
+        out.append("</tbody></table></div>")
+    
+    # CT600 Box Mapping
+    ct6 = tax_comp.ct600_mapping
+    if ct6:
+        out.append("""
+        <div class="card" style="border-radius: 8px;">
+            <div class="section-title">CT600 Box Mapping</div>
+            <table>
+                <thead><tr><th>Box</th><th>Description</th><th class="number">Amount (£)</th></tr></thead>
+                <tbody>""")
+        out.append(f"""<tr><td>13</td><td>Non-trading profits</td><td class="number">{ct6.box_13_non_trading_profits:,.2f}</td></tr>""")
+        out.append(f"""<tr><td>16</td><td>Chargeable gains</td><td class="number">{ct6.box_16_chargeable_gains:,.2f}</td></tr>""")
+        out.append(f"""<tr><td>46</td><td>Taxable total profit</td><td class="number">{ct6.box_46_taxable_total_profit:,.2f}</td></tr>""")
+        out.append(f"""<tr class="total-row"><td>500</td><td>Corporation Tax</td><td class="number"><strong>{ct6.box_500_corporation_tax:,.2f}</strong></td></tr>""")
+        out.append("</tbody></table></div>")
+    
+    # Variance: FIFO vs Section 104 (trial balance gains vs tax gains)
+    tb_gains = generator.accounts.get('4200')
+    tb_losses = generator.accounts.get('5400')
+    fifo_net = (tb_gains.credit - tb_gains.debit) - (tb_losses.debit - tb_losses.credit) if tb_gains and tb_losses else Decimal('0')
+    s104_net = tax_comp.calculate_capital_gains()
+    var = fifo_net - s104_net
+    out.append("""
+        <div class="card" style="border-radius: 8px;">
+            <div class="section-title">Variance: FIFO (Accounts) vs Section 104 (Tax)</div>
+            <table>
+                <thead><tr><th>Measure</th><th class="number">Amount (£)</th></tr></thead>
+                <tbody>""")
+    out.append(f"""<tr><td>FIFO net gain (trial balance 4200/5400)</td><td class="number">{fifo_net:,.2f}</td></tr>""")
+    out.append(f"""<tr><td>Section 104 net gain (tax)</td><td class="number">{s104_net:,.2f}</td></tr>""")
+    out.append(f"""<tr><td>Variance</td><td class="number">{var:,.2f}</td></tr>""")
+    out.append("</tbody></table><div class='meta'>Difference due to same-day/30-day matching and average cost (Section 104) vs FIFO.</div></div>")
+    
+    return "\n".join(out)
+
+
 def generate_html_report(
     generator: TrialBalanceGenerator,
     company_name: str,
-    period_end: date
+    period_end: date,
+    tax_comp: Optional[Any] = None,
 ) -> str:
-    """Generate HTML trial balance report."""
+    """Generate HTML trial balance report, optionally with tax computation sections."""
     
     tb = generator.get_trial_balance()
     holdings = generator.get_holdings_summary()
@@ -798,6 +966,10 @@ def generate_html_report(
         </div>
 """
     
+    # Tax computation sections (if tax_comp provided)
+    if tax_comp is not None:
+        html += _render_tax_sections(tax_comp, generator)
+    
     # Holdings schedule
     if holdings:
         html += """
@@ -835,9 +1007,12 @@ def generate_html_report(
         </div>
 """
     
-    html += """
+    meta = "Generated using HMRC monthly exchange rates • FRS 105 historical cost basis • FIFO cost method (financial statements)"
+    if tax_comp is not None:
+        meta += " • Section 104 pooling (tax computation)"
+    html += f"""
         <div class="meta">
-            Generated using HMRC monthly exchange rates • FRS 105 historical cost basis • FIFO cost method
+            {meta}
         </div>
     </div>
 </body>
@@ -858,6 +1033,7 @@ def main():
     parser.add_argument('--period-end', required=True, help='Period end date (YYYY-MM-DD)')
     parser.add_argument('--company', default='Investment Holding Company', help='Company name')
     parser.add_argument('--output', type=Path, help='Output HTML file path')
+    parser.add_argument('--management-expenses', type=Path, help='Optional CSV of additional management expenses (description, amount_gbp, date)')
     
     args = parser.parse_args()
     
@@ -890,8 +1066,20 @@ def main():
     generator = TrialBalanceGenerator(flex_parser, rate_cache, period_end)
     generator.process()
     
+    # Tax computation (Section 104 + CT) if modules available
+    tax_comp = None
+    if TaxComputation and generator.section_104:
+        tax_comp = TaxComputation(
+            generator,
+            generator.section_104,
+            management_expenses_path=args.management_expenses,
+        )
+        tax_comp.calculate_taxable_profit()
+        tax_comp.calculate_corporation_tax()
+        tax_comp.generate_ct600_mapping()
+    
     # Generate HTML report
-    html = generate_html_report(generator, args.company, period_end)
+    html = generate_html_report(generator, args.company, period_end, tax_comp=tax_comp)
     
     # Output
     output_path = args.output or Path(f"trial_balance_{period_end.isoformat()}.html")

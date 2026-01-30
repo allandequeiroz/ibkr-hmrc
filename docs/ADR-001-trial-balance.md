@@ -225,10 +225,18 @@ IBKR Flex Query CSV
 | FX rate fetch failure | Raise exception (no fallback) |
 | Unbalanced trial balance | Report in output, don't fail |
 
+### 8. Tax Computation Enhancement (2026-01-30)
+
+**Decision:** Add UK Corporation Tax computation alongside the trial balance: Section 104 share pooling (same-day and 30-day matching), taxable profit, Corporation Tax liability, CT600 box mapping, and tax shield summary.
+
+**Rationale:** FRS 105 trial balance is for financial statements; CT600 requires Section 104 pooling and tax adjustments. Dual tracking (FIFO for accounts, Section 104 for tax) keeps both outputs in one report.
+
+**Consequences:** New modules `section_104_pooling.py` and `tax_computation.py`; optional `--management-expenses` CSV; HTML report includes Tax Computation Schedule, Interest Relief (ICR), CT Liability, Section 104 Disposals, Tax Shield Summary, CT600 Mapping, and FIFO vs Section 104 variance.
+
 ## Future Considerations
 
 1. **Multi-currency cash tracking** - Separate accounts for EUR, CHF, etc.
-2. **Section 104 pooling** - Add CGT-compliant cost calculation mode
+2. **Section 104 pooling** - Implemented for tax (CT600); FIFO retained for FRS 105 accounts.
 3. **Xero/QuickBooks export** - Generate importable journal entries
 4. **PDF generation** - Native PDF output without browser
 5. **IBKR API integration** - Direct data fetch instead of manual export

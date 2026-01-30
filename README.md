@@ -37,14 +37,16 @@ python ibkr_trial_balance.py <flex_query.csv> \
 | `--period-end` | Yes | Accounting period end date |
 | `--company` | No | Company name for report header |
 | `--output` | No | Output file path (default: `trial_balance_YYYY-MM-DD.html`) |
+| `--management-expenses` | No | CSV of additional management expenses (description, amount_gbp, date) for tax computation |
 
 ## Output
 
 HTML report containing:
 
 1. **Trial Balance** - All accounts with debits/credits, grouped by category
-2. **Holdings Schedule** - Listed investments at cost with FIFO lot detail
-3. **Balance Check** - Confirms debits = credits
+2. **Tax Computation** (if modules loaded) - Taxable profit, dividend exemption, management expenses, interest relief (ICR), Corporation Tax liability, Section 104 disposals, Tax Shield Summary, CT600 box mapping, FIFO vs Section 104 variance
+3. **Holdings Schedule** - Listed investments at cost with FIFO lot detail
+4. **Balance Check** - Confirms debits = credits
 
 ## Chart of Accounts
 
@@ -117,7 +119,7 @@ Minimum required fields:
 ## Limitations
 
 1. **Opening balances** - Not handled. If positions transferred in, manually adjust cost basis.
-2. **Section 104 pooling** - Uses FIFO, not share pooling. Adjust for CGT purposes.
+2. **Section 104 pooling** - Trial balance uses FIFO for accounts. Section 104 pooling and tax computation are integrated: the HTML report includes tax computation, CT liability, and CT600 mapping when `section_104_pooling` and `tax_computation` modules are available.
 3. **Multi-currency cash** - All foreign cash mapped to 1101 (USD). Extend for EUR/other.
 4. **Corporate actions** - Stock splits parsed but complex restructurings may need manual review.
 5. **365-day export limit** - IBKR caps exports at 1 year. Run multiple exports for longer periods.
@@ -140,12 +142,16 @@ Minimum required fields:
 │   └── project.conf                    # ClickHouse, FMP API, pipeline settings
 ├── scripts/
 │   ├── ibkr_trial_balance.py          # Main trial balance tool
+│   ├── section_104_pooling.py         # Section 104 pooling for UK tax (CT600)
+│   ├── tax_computation.py             # Tax computation, CT liability, CT600 mapping
 │   └── ibkr_trial_balance-gemini.py   # Alternative parser (Standard Statements)
 ├── analysis/
 │   ├── business.csv                    # IBKR Flex Query export (input)
 │   ├── activity.csv                    # IBKR Activity Statement (validation)
 │   ├── realized.csv                    # IBKR Realized Summary (validation)
 │   ├── parse_realized.py              # Realized P/L extraction utility
+│   ├── validate_trial_balance.py      # Trial balance vs IBKR validation
+│   ├── validate_tax_computation.py    # Tax computation validation
 │   └── 16235546_trial_balance.html    # Generated trial balance output
 └── docs/
     ├── ADR-001-trial-balance.md       # Architecture decisions
