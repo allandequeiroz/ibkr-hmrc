@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trial Balance - CAESARIS DENARII LIMITED</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { 
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: #f5f5f5;
+            padding: 2rem;
+            color: #333;
+        }
+        .container { max-width: 900px; margin: 0 auto; }
+        .header {
+            background: linear-gradient(135deg, #1a365d 0%, #2c5282 100%);
+            color: white;
+            padding: 2rem;
+            border-radius: 8px 8px 0 0;
+        }
+        .header h1 { font-size: 1.5rem; font-weight: 600; }
+        .header .subtitle { opacity: 0.9; margin-top: 0.5rem; }
+        .header .period { 
+            margin-top: 1rem;
+            padding-top: 1rem;
+            border-top: 1px solid rgba(255,255,255,0.2);
+            font-size: 0.9rem;
+        }
+        .card {
+            background: white;
+            border-radius: 0 0 8px 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 2rem;
+        }
+        .section-title {
+            background: #edf2f7;
+            padding: 1rem 1.5rem;
+            font-weight: 600;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th, td {
+            padding: 0.75rem 1.5rem;
+            text-align: left;
+        }
+        th {
+            background: #f7fafc;
+            font-weight: 600;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #4a5568;
+        }
+        td { border-bottom: 1px solid #edf2f7; }
+        tr:last-child td { border-bottom: none; }
+        .number { text-align: right; font-variant-numeric: tabular-nums; }
+        .total-row { 
+            font-weight: 600;
+            background: #f7fafc;
+        }
+        .total-row td { border-top: 2px solid #2c5282; }
+        .balance-check {
+            padding: 1rem 1.5rem;
+            background: #f0fff4;
+            border-top: 1px solid #9ae6b4;
+            color: #276749;
+            font-weight: 500;
+        }
+        .balance-check.error {
+            background: #fff5f5;
+            border-top-color: #feb2b2;
+            color: #c53030;
+        }
+        .meta {
+            font-size: 0.8rem;
+            color: #718096;
+            padding: 1rem 1.5rem;
+            border-top: 1px solid #edf2f7;
+        }
+        .category { 
+            padding-left: 2rem; 
+            color: #4a5568;
+        }
+        .category-header {
+            background: #fafafa;
+            font-weight: 600;
+            color: #2d3748;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>CAESARIS DENARII LIMITED</h1>
+            <div class="subtitle">Trial Balance</div>
+            <div class="period">
+                Period ending: 28 February 2026<br>
+                Prepared: 30 January 2026 at 05:27
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="section-title">Trial Balance</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Code</th>
+                        <th>Account</th>
+                        <th class="number">Debit (£)</th>
+                        <th class="number">Credit (£)</th>
+                    </tr>
+                </thead>
+                <tbody>
+<tr class="category-header"><td colspan="4">Assets</td></tr>
+<tr>
+                    <td class="category">1101</td>
+                    <td>Cash at Bank - USD</td>
+                    <td class="number">15,535,944.35</td>
+                    <td class="number">16,703,184.35</td>
+                </tr>
+<tr>
+                    <td class="category">1200</td>
+                    <td>Listed Investments at Cost</td>
+                    <td class="number">15,917,209.88</td>
+                    <td class="number">15,115,623.64</td>
+                </tr>
+<tr class="category-header"><td colspan="4">Capital & Reserves</td></tr>
+<tr>
+                    <td class="category">3000</td>
+                    <td>Share Capital</td>
+                    <td class="number">775,926.08</td>
+                    <td class="number">10,500.00</td>
+                </tr>
+<tr class="category-header"><td colspan="4">Income</td></tr>
+<tr>
+                    <td class="category">4000</td>
+                    <td>Dividend Income (Gross)</td>
+                    <td class="number">0.00</td>
+                    <td class="number">780.13</td>
+                </tr>
+<tr>
+                    <td class="category">4100</td>
+                    <td>Bank Interest Received</td>
+                    <td class="number">0.00</td>
+                    <td class="number">1,604.52</td>
+                </tr>
+<tr>
+                    <td class="category">4200</td>
+                    <td>Realized Gains on Investments</td>
+                    <td class="number">0.00</td>
+                    <td class="number">1,014,206.86</td>
+                </tr>
+<tr>
+                    <td class="category">4300</td>
+                    <td>Foreign Exchange Gains</td>
+                    <td class="number">0.00</td>
+                    <td class="number">30,700.29</td>
+                </tr>
+<tr class="category-header"><td colspan="4">Expenses</td></tr>
+<tr>
+                    <td class="category">5000</td>
+                    <td>Foreign Withholding Tax</td>
+                    <td class="number">184.71</td>
+                    <td class="number">0.00</td>
+                </tr>
+<tr>
+                    <td class="category">5200</td>
+                    <td>Broker Fees</td>
+                    <td class="number">1,120.26</td>
+                    <td class="number">0.00</td>
+                </tr>
+<tr>
+                    <td class="category">5400</td>
+                    <td>Realized Losses on Investments</td>
+                    <td class="number">637,469.60</td>
+                    <td class="number">0.00</td>
+                </tr>
+<tr>
+                    <td class="category">5500</td>
+                    <td>Foreign Exchange Losses</td>
+                    <td class="number">1.49</td>
+                    <td class="number">0.00</td>
+                </tr>
+<tr>
+                    <td class="category">5600</td>
+                    <td>Interest Paid</td>
+                    <td class="number">8,743.42</td>
+                    <td class="number">0.00</td>
+                </tr>
+
+                    <tr class="total-row">
+                        <td></td>
+                        <td><strong>TOTAL</strong></td>
+                        <td class="number"><strong>32,876,599.79</strong></td>
+                        <td class="number"><strong>32,876,599.79</strong></td>
+                    </tr>
+                </tbody>
+            </table>
+            <div class="balance-check ">
+                ✓ Trial balance balanced
+            </div>
+        </div>
+
+        <div class="card" style="border-radius: 8px;">
+            <div class="section-title">Schedule: Listed Investments at Cost</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Symbol</th>
+                        <th class="number">Quantity</th>
+                        <th class="number">Cost (£)</th>
+                        <th class="number">Avg Cost/Share (£)</th>
+                    </tr>
+                </thead>
+                <tbody>
+<tr>
+                <td>IRMD  260417P00095000</td>
+                <td class="number">5.0000</td>
+                <td class="number">2,326.16</td>
+                <td class="number">465.2320</td>
+            </tr>
+
+                    <tr class="total-row">
+                        <td colspan="2"><strong>TOTAL</strong></td>
+                        <td class="number"><strong>2,326.16</strong></td>
+                        <td></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="meta">
+            Generated using HMRC monthly exchange rates • FRS 105 historical cost basis • FIFO cost method
+        </div>
+    </div>
+</body>
+</html>

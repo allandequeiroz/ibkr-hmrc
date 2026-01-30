@@ -1,0 +1,16 @@
+# Force LF everywhere that matters
+*.sh   text eol=lf
+*.py   text eol=lf
+*.sql  text eol=lf
+*.md   text eol=lf
+*.yaml text eol=lf
+*.yml  text eol=lf
+*.txt  text eol=lf
+*.j2   text eol=lf
+
+# Treat these as binary
+*.xlsx binary
+*.png  binary
+*.jpg  binary
+*.zip  binary
+*.pdf  binary

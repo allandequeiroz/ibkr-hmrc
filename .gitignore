@@ -1,0 +1,30 @@
+# Ignore Python virtual environments
+**/.venv/
+**/venv/
+
+# Ignore JetBrains
+**/.idea/
+**/idea/
+
+# Ignore analysis
+# analysis/
+
+# Ignore ingestion
+#ingestion/
+#ingestionv1/
+
+# Ignore logs (optional, if you don’t want them versioned)
+logs/
+
+# Ignore Python cache
+**/__pycache__/
+
+# Ignore financials cached entries
+/scripts/analysis/_financials/
+
+# Ignore audio processing output (TTS/voice cloning artifacts)
+/processed/
+
+
+
+

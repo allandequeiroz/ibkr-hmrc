@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(Get-ChildItem -Path \"c:\\\\dev\\\\ibkr-hmrc\" -Recurse -File)",
+      "Bash(Where-Object { $_FullName -notmatch \"__pycache__\" })",
+      "Bash(Select-Object -ExpandProperty FullName)"
+    ]
+  }
+}

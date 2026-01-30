@@ -1,0 +1,94 @@
+# Core dependencies
+clickhouse-connect>=0.6.0
+pandas>=1.5.0
+numpy>=1.21.0
+requests>=2.28.0
+
+# Data processing and analysis
+scipy>=1.9.0
+statsmodels>=0.13.0
+matplotlib>=3.5.0
+seaborn>=0.11.0
+sympy>=1.11.0
+
+# Financial data
+yfinance>=0.2.0
+
+# Development and testing
+pytest>=7.0.0
+pytest-cov>=4.0.0
+
+# Logging and monitoring
+colorlog>=6.7.0
+
+# Data validation
+jsonschema>=4.0.0
+
+# Progress bars
+tqdm>=4.64.0
+
+# Date/time handling
+python-dateutil>=2.8.0
+
+# HTTP client enhancements
+urllib3>=1.26.0
+certifi>=2022.0.0
+
+# Browser automation for SEC bot protection bypass
+selenium>=4.15.0
+webdriver-manager>=4.0.0
+cloudscraper>=1.2.71
+
+# Note: The following modules are built-in to Python and don't need installation:
+# gzip, zipfile, concurrent.futures, threading, subprocess, signal, time, datetime,
+# json, csv, hashlib, os, sys, logging, argparse, configparser, pathlib, typing,
+# collections, re, warnings
+xlrd>=2.0.1
+
+# Dependencies for Event Farming Subsystem
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+
+# GPU Acceleration Dependencies for RTX 5090
+# Install after requirements.txt
+
+# PyTorch with CUDA 12.8 (already installed, listed for reference)
+--index-url https://download.pytorch.org/whl/cu128
+torch>=2.9.1
+torchvision>=0.24.1
+torchaudio>=2.9.1
+
+# NVIDIA RAPIDS - GPU DataFrame and ML
+# Note: Install via conda for best compatibility
+# conda install -c rapidsai -c conda-forge -c nvidia rapids=24.12 python=3.13 cuda-version=12.8
+cudf-cu12>=24.12.0
+cuml-cu12>=24.12.0
+cugraph-cu12>=24.12.0
+cuspatial-cu12>=24.12.0
+cuproj-cu12>=24.12.0
+
+# CuPy - GPU NumPy
+cupy-cuda12x>=13.0.0
+
+# vLLM - Optimized LLM Inference Engine
+vllm>=0.6.0
+
+# GPU Communication Libraries
+nvidia-nccl-cu12>=2.21.5
+
+# Additional GPU utilities
+nvidia-ml-py>=12.560.0  # NVIDIA Management Library for monitoring
+pynvml>=11.5.0  # Python bindings for NVML
+
+# Optional: For multi-GPU scaling
+dask-cuda>=24.12.0  # RAPIDS Dask integration
+dask[distributed]>=2024.12.0
+
+# Performance profiling
+py-spy>=0.3.14  # CPU profiler
+nvtx>=0.2.10  # NVIDIA Tools Extension for profiling
+
+# Compatibility note:
+# If you encounter installation issues with RAPIDS, use conda instead:
+# conda create -n ibkr-hmrc-gpu -c rapidsai -c conda-forge -c nvidia python=3.13 rapids=24.12 cuda-version=12.8
+# Then pip install the remaining dependencies
