@@ -10,6 +10,9 @@ from pathlib import Path
 from bs4 import BeautifulSoup
 import requests
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
 def parse_html_trial_balance(html_path: Path) -> dict:
     """Extract trial balance figures from HTML."""
     with open(html_path, 'r', encoding='utf-8') as f:
@@ -132,7 +135,7 @@ def check_hmrc_rate(year: int, month: int, currency: str = 'USD') -> Decimal:
 
 
 def main():
-    base_dir = Path('c:/dev/ibkr-hmrc/analysis')
+    base_dir = REPO_ROOT / "analysis"
 
     print("=" * 80)
     print("TRIAL BALANCE VALIDATION REPORT")
@@ -259,9 +262,9 @@ def main():
     total_credits = sum(acc['credit'] for acc in accounts.values())
     diff = abs(total_debits - total_credits)
 
-    print(f"  Total Debits:  £{total_debits:>15,.2f}")
+    print(f"  Total Debits:   £{total_debits:>15,.2f}")
     print(f"  Total Credits: £{total_credits:>15,.2f}")
-    print(f"  Difference:    £{diff:>15,.2f}")
+    print(f"  Difference:     £{diff:>15,.2f}")
 
     if diff < Decimal('0.01'):
         print(f"  Result: PASS")

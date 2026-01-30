@@ -78,7 +78,7 @@ class TaxComputation:
         generator: object with .accounts (dict[str, account]) where account
                    has .debit and .credit (Decimal).
         section_104_pool: Section104Pool after flush_all_pending().
-        management_expenses_path: optional CSV (description, amount_gbp, date).
+        management_expenses_path: path to CSV of management/deductible expenses (description, amount_gbp, date). Include all allowable expenses not in the trial balance.
         """
         self._accounts = generator.accounts
         self._section_104 = section_104_pool

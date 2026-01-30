@@ -4,7 +4,12 @@ IBKR Flex Query to UK Trial Balance Reconciliation Tool
 For FRS 105 micro-entity: Historical cost basis, GBP functional currency
 
 Usage:
-    python ibkr_trial_balance.py <flex_query.csv> --period-end YYYY-MM-DD
+    python ibkr_trial_balance.py <flex_query.csv> --period-end YYYY-MM-DD [--company NAME] [--output PATH]
+    [--management-expenses PATH] [--qbo-accounts PATH] [--qbo-date PATH]
+
+Full report (trial balance + tax + QuickBooks reconciliation) in one command: pass --qbo-accounts
+and --qbo-date with your QBO export paths (Transaction Detail by Account, Transaction List by Date).
+See docs/QUICKBOOKS_EXPORT.md for export steps.
 
 Requirements:
     pip install pandas requests --break-system-packages
@@ -24,6 +29,11 @@ from pathlib import Path
 from typing import Optional, Any
 import requests
 
+try:
+    import pandas as pd
+except ImportError:
+    pd = None  # owners_loan.xlsx requires pandas
+
 # Tax computation (Section 104 + CT): allow import when run from repo root or scripts/
 _SCRIPT_DIR = Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
@@ -34,6 +44,10 @@ try:
 except ImportError:
     Section104Pool = None  # type: ignore
     TaxComputation = None  # type: ignore
+try:
+    from qbo_reconciliation import get_reconciliation_data
+except ImportError:
+    get_reconciliation_data = None  # type: ignore
 
 # ============================================================================
 # HMRC Exchange Rates
@@ -345,10 +359,12 @@ class TrialBalanceGenerator:
         '1100': 'Cash at Bank - GBP',
         '1101': 'Cash at Bank - USD',
         '1102': 'Cash at Bank - Other CCY',
+        '1103': 'Cash at Bank - Other',  # Barclays / non-IBKR (from owners_loan.xlsx)
         '1200': 'Listed Investments at Cost',
         
         # Liabilities
         '2100': 'Accruals and Deferred Income',
+        '2101': "Director's / Owner's Loan",
         
         # Capital
         '3000': 'Share Capital',
@@ -657,6 +673,210 @@ class TrialBalanceGenerator:
 
 
 # ============================================================================
+# Owner's / Director's Loan (from owners_loan.xlsx or owners_loan.pdf)
+# ============================================================================
+
+# Data row in PDF: date (DD/MM/YYYY) + account (U\d+ or sort-code) + amount
+_OWNERS_LOAN_PDF_ROW = re.compile(
+    r"^(\d{1,2}/\d{1,2}/\d{4})\s+(U\d+|\d{2}-\d{2}-\d{2}\s+\d+)\s+(-?[\d,]+\.?\d*)\s"
+)
+
+
+def _parse_owners_loan_pdf(path: Path) -> tuple[list[tuple[date, str, Decimal]], list[tuple[date, str, Decimal]]]:
+    """
+    Extract (date, account, amount) rows from owners_loan.pdf. Uses pdfplumber.
+    Returns (in_rows, out_rows). If the PDF has standalone totals -514,005.62 and 513,275.13,
+    splits by blocks (Director -> Business vs Business -> Director). Otherwise uses sign:
+    negative = in, positive = out (single list with signed amounts, caller splits).
+    """
+    try:
+        import pdfplumber
+    except ImportError:
+        raise RuntimeError("PDF support requires pdfplumber; pip install pdfplumber")
+    with pdfplumber.open(path) as pdf:
+        full_text = ""
+        for p in pdf.pages:
+            t = p.extract_text()
+            if t:
+                full_text += t + "\n"
+    lines = [ln.strip() for ln in full_text.splitlines() if ln.strip()]
+    in_rows: list[tuple[date, str, Decimal]] = []
+    out_rows: list[tuple[date, str, Decimal]] = []
+    seen: set[tuple[str, str, str]] = set()
+
+    def parse_row(line: str) -> tuple[date, str, Decimal] | None:
+        m = _OWNERS_LOAN_PDF_ROW.match(line)
+        if not m:
+            return None
+        day_s, account_s, amount_s = m.group(1), m.group(2).strip().upper(), m.group(3).replace(",", "")
+        try:
+            dt = datetime.strptime(day_s, "%d/%m/%Y").date()
+            amt = Decimal(amount_s).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        except (ValueError, Exception):
+            return None
+        return (dt, account_s, amt)
+
+    def _norm(dt: date, account_s: str, amt: Decimal) -> tuple:
+        return (str(dt), account_s, str(amt.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)))
+
+    def add_in(dt: date, account_s: str, amt: Decimal) -> None:
+        key = _norm(dt, account_s, amt)
+        if key in seen:
+            return
+        seen.add(key)
+        in_rows.append((dt, account_s, amt))
+
+    def add_out(dt: date, account_s: str, amt: Decimal) -> None:
+        key = _norm(dt, account_s, amt)
+        if key in seen:
+            return
+        seen.add(key)
+        out_rows.append((dt, account_s, amt))
+
+    # Look for block-delimiting totals (normalize: no commas)
+    idx_first_total = -1  # line that is -514,005.62
+    idx_second_total = -1  # line that is 513,275.13
+    for i, line in enumerate(lines):
+        clean = line.replace(",", "").strip()
+        if re.match(r"^-?\d+\.?\d*$", clean):
+            try:
+                v = Decimal(clean)
+                if v < 0 and idx_first_total < 0:
+                    idx_first_total = i
+                elif v > 0 and idx_first_total >= 0 and idx_second_total < 0:
+                    idx_second_total = i
+                    break
+            except Exception:
+                pass
+
+    if idx_first_total >= 0 and idx_second_total >= 0:
+        # Block-based: rows before first total = Director -> Business; between totals = Business -> Director
+        for i in range(idx_first_total):
+            row = parse_row(lines[i])
+            if row and row[2] != 0:
+                dt, account_s, amt = row
+                if amt < 0 and account_s != "U6361921":
+                    add_in(dt, account_s, abs(amt))
+        for i in range(idx_first_total + 1, idx_second_total):
+            row = parse_row(lines[i])
+            if row and row[2] != 0:
+                dt, account_s, amt = row
+                if amt > 0:
+                    add_out(dt, account_s, amt)
+    else:
+        # Fallback: sign-based for all lines
+        for line in lines:
+            if line.startswith("Date") or line in ("Barclays", "Wise", "IBKR to IBKR") or line.startswith("-- ") or "Summary:" in line:
+                continue
+            clean = line.replace(",", "")
+            if _OWNERS_LOAN_PDF_ROW.match(line) is None and re.match(r"^-?\d+\.?\d*$", clean):
+                continue
+            row = parse_row(line)
+            if not row or row[2] == 0:
+                continue
+            dt, account_s, amt = row
+            if amt < 0:
+                if account_s != "U6361921":
+                    add_in(dt, account_s, abs(amt))
+            else:
+                add_out(dt, account_s, amt)
+    return (in_rows, out_rows)
+
+
+def _apply_owners_loan_from_pdf(generator: TrialBalanceGenerator, path: Path, period_end: date) -> None:
+    """Post owner's loan from PDF using parsed in/out rows."""
+    in_rows, out_rows = _parse_owners_loan_pdf(path)
+    for dt, account_s, amt_abs in in_rows:
+        if dt > period_end:
+            continue
+        generator._debit("1103", amt_abs, f"Owner's loan in ({account_s})")
+        generator._credit("2101", amt_abs, f"Owner's loan in ({account_s})")
+    for dt, account_s, amt_abs in out_rows:
+        if dt > period_end:
+            continue
+        generator._debit("2101", amt_abs, f"Owner's loan out ({account_s})")
+        generator._credit("1103", amt_abs, f"Owner's loan out ({account_s})")
+
+
+def apply_owners_loan(generator: TrialBalanceGenerator, path: Path, period_end: date) -> None:
+    """
+    Load owner's loan movements from Excel or PDF and post to 1103 (Cash at Bank - Other)
+    and 2101 (Director's / Owner's Loan).
+
+    - If path is .pdf: parses PDF text (no formulas). Negative = Director -> Business (skip U6361921),
+      positive = Business -> Director. Requires pdfplumber.
+    - If path is .xlsx: expects sheet 'owners loan' with Date, Account, Amount. Supports
+      "Summary: Director -> Business" / "Summary: Business -> Director" sections; else sign convention.
+    """
+    if not path.exists():
+        return
+    if path.suffix.lower() == ".pdf":
+        _apply_owners_loan_from_pdf(generator, path, period_end)
+        return
+    if pd is None:
+        raise RuntimeError("pandas required for --owners-loan (Excel); pip install pandas openpyxl")
+    try:
+        df = pd.read_excel(path, sheet_name='owners loan', header=0)
+    except Exception as e:
+        raise RuntimeError(f"Failed to read owners_loan.xlsx sheet 'owners loan': {e}") from e
+    # Column names (first row)
+    cols = {str(c).strip().lower(): c for c in df.columns}
+    date_col = cols.get('date') or cols.get('date/time') or df.columns[0]
+    account_col = cols.get('account') or df.columns[1] if len(df.columns) > 1 else None
+    amount_col = cols.get('amount') or df.columns[2] if len(df.columns) > 2 else None
+    if account_col is None or amount_col is None:
+        raise ValueError("owners_loan.xlsx must have Date, Account, Amount columns")
+    col0 = df.columns[0]
+    current_section: str | None = None  # 'in' = Director -> Business, 'out' = Business -> Director
+    for _, row in df.iterrows():
+        # Detect section headers (in first column)
+        cell0 = row.get(col0, None)
+        if pd.notna(cell0) and isinstance(cell0, str):
+            s = str(cell0).strip()
+            if "Director" in s and "->" in s and "Business" in s and s.find("Director") < s.find("Business"):
+                current_section = "in"   # Director -> Business (money in)
+                continue
+            if "Business" in s and "->" in s and "Director" in s and s.find("Business") < s.find("Director"):
+                current_section = "out"  # Business -> Director (money out)
+                continue
+        if current_section is None:
+            continue
+        # Data row: need valid date and amount
+        raw_date = row.get(date_col, None)
+        raw_account = row.get(account_col, None)
+        raw_amt = row.get(amount_col, None)
+        if pd.isna(raw_date) or pd.isna(raw_amt):
+            continue
+        try:
+            dt = pd.to_datetime(raw_date, errors='coerce')
+            if pd.isna(dt) or dt.date() > period_end:
+                continue
+        except Exception:
+            continue
+        try:
+            amt = Decimal(str(raw_amt).replace(",", "")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        except Exception:
+            continue
+        if amt == 0:
+            continue
+        acct_str = str(raw_account).strip().upper() if pd.notna(raw_account) else ""
+        # Director -> Business: company receives (skip U6361921 – in Flex)
+        if current_section == "in":
+            if acct_str == "U6361921":
+                continue
+            amt_abs = abs(amt)
+            memo = f"Owner's loan in ({raw_account})"
+            generator._debit("1103", amt_abs, memo)
+            generator._credit("2101", amt_abs, memo)
+        # Business -> Director: company pays
+        else:
+            amt_abs = abs(amt)
+            memo = f"Owner's loan out ({raw_account})"
+            generator._debit("2101", amt_abs, memo)
+            generator._credit("1103", amt_abs, memo)
+
+
+# ============================================================================
 # HTML Report Generator
 # ============================================================================
 
@@ -791,7 +1011,31 @@ def _render_tax_sections(tax_comp: Any, generator: TrialBalanceGenerator) -> str
     out.append(f"""<tr><td>Section 104 net gain (tax)</td><td class="number">{s104_net:,.2f}</td></tr>""")
     out.append(f"""<tr><td>Variance</td><td class="number">{var:,.2f}</td></tr>""")
     out.append("</tbody></table><div class='meta'>Difference due to same-day/30-day matching and average cost (Section 104) vs FIFO.</div></div>")
-    
+
+    return "\n".join(out)
+
+
+def _render_qbo_reconciliation(rec: dict[str, Any]) -> str:
+    """Render QuickBooks reconciliation section (bank + expense alignment)."""
+    out: list[str] = []
+    out.append("""
+        <div class="card" style="border-radius: 8px;">
+            <div class="section-title">QuickBooks Reconciliation</div>
+            <table>
+                <thead><tr><th>Description</th><th class="number">Amount (£)</th></tr></thead>
+                <tbody>""")
+    out.append(f"""<tr><td>Book cash (1100+1101+1102+1103)</td><td class="number">{rec['book_cash']:,.2f}</td></tr>""")
+    out.append(f"""<tr><td>QBO bank (end Balance)</td><td class="number">{rec['qbo_bal']:,.2f}</td></tr>""")
+    out.append(f"""<tr><td>Difference (bank)</td><td class="number">{rec['diff_bank']:,.2f}</td></tr>""")
+    out.append(f"""<tr><td>{'✓ Bank reconciled' if rec['reconciled_bank'] else '⚠ Unreconciled'}</td><td></td></tr>""")
+    out.append("""<tr><td colspan="2" style="height: 0.5rem;"></td></tr>""")
+    out.append(f"""<tr><td>Book expenses (5200+5300+5600)</td><td class="number">{rec['book_exp']:,.2f}</td></tr>""")
+    out.append(f"""<tr><td>QBO outflows (sum |negative Amt|)</td><td class="number">{abs(rec['qbo_exp_sum']):,.2f}</td></tr>""")
+    out.append(f"""<tr><td>Difference (expenses)</td><td class="number">{rec['diff_exp']:,.2f}</td></tr>""")
+    out.append(f"""<tr><td>{'✓ Expenses aligned (within £1)' if rec['aligned_exp'] else '⚠ Variance'}</td><td></td></tr>""")
+    out.append("</tbody></table>")
+    out.append("<div class='meta'>Book figures from trial balance (IBKR). QBO from Transaction Detail by Account and Transaction List by Date (Cash basis, same period).</div>")
+    out.append("</div>")
     return "\n".join(out)
 
 
@@ -800,8 +1044,9 @@ def generate_html_report(
     company_name: str,
     period_end: date,
     tax_comp: Optional[Any] = None,
+    qbo_reconciliation: Optional[dict[str, Any]] = None,
 ) -> str:
-    """Generate HTML trial balance report, optionally with tax computation sections."""
+    """Generate HTML trial balance report, optionally with tax and QuickBooks reconciliation sections."""
     
     tb = generator.get_trial_balance()
     holdings = generator.get_holdings_summary()
@@ -930,8 +1175,8 @@ def generate_html_report(
     
     # Group accounts by category
     categories = [
-        ('Assets', ['1100', '1101', '1102', '1200']),
-        ('Liabilities', ['2100']),
+        ('Assets', ['1100', '1101', '1102', '1103', '1200']),
+        ('Liabilities', ['2100', '2101']),
         ('Capital & Reserves', ['3000', '3100', '3200']),
         ('Income', ['4000', '4100', '4200', '4300']),
         ('Expenses', ['5000', '5100', '5200', '5300', '5400', '5500', '5600']),
@@ -969,7 +1214,11 @@ def generate_html_report(
     # Tax computation sections (if tax_comp provided)
     if tax_comp is not None:
         html += _render_tax_sections(tax_comp, generator)
-    
+
+    # QuickBooks reconciliation (if qbo_reconciliation data provided)
+    if qbo_reconciliation is not None:
+        html += _render_qbo_reconciliation(qbo_reconciliation)
+
     # Holdings schedule
     if holdings:
         html += """
@@ -1010,6 +1259,8 @@ def generate_html_report(
     meta = "Generated using HMRC monthly exchange rates • FRS 105 historical cost basis • FIFO cost method (financial statements)"
     if tax_comp is not None:
         meta += " • Section 104 pooling (tax computation)"
+    if qbo_reconciliation is not None:
+        meta += " • QuickBooks reconciliation"
     html += f"""
         <div class="meta">
             {meta}
@@ -1033,8 +1284,11 @@ def main():
     parser.add_argument('--period-end', required=True, help='Period end date (YYYY-MM-DD)')
     parser.add_argument('--company', default='Investment Holding Company', help='Company name')
     parser.add_argument('--output', type=Path, help='Output HTML file path')
-    parser.add_argument('--management-expenses', type=Path, help='Optional CSV of additional management expenses (description, amount_gbp, date)')
-    
+    parser.add_argument('--management-expenses', type=Path, help='CSV of management/deductible expenses to include in tax computation (description, amount_gbp, date). Include all allowable expenses not in the Flex data.')
+    parser.add_argument('--owners-loan', type=Path, default=None, help="Excel (owners_loan.xlsx) or PDF (owners_loan.pdf) with director's loan movements. Company bank rows post to 1103/2101; U6361921 excluded (in Flex). Use PDF if the spreadsheet uses references/formulas.")
+    parser.add_argument('--qbo-accounts', type=Path, default=None, help='QBO Transaction Detail by Account (bank) – include to embed QuickBooks reconciliation in the report')
+    parser.add_argument('--qbo-date', type=Path, default=None, help='QBO Transaction List by Date (expenses) – include to embed QuickBooks reconciliation in the report')
+
     args = parser.parse_args()
     
     if not args.flex_query.exists():
@@ -1065,6 +1319,10 @@ def main():
     # Generate trial balance
     generator = TrialBalanceGenerator(flex_parser, rate_cache, period_end)
     generator.process()
+    # Owner's / director's loan (Barclays etc.) from Excel
+    if args.owners_loan and args.owners_loan.exists():
+        apply_owners_loan(generator, args.owners_loan, period_end)
+        print(f"  Applied owner's loan from {args.owners_loan}")
     
     # Tax computation (Section 104 + CT) if modules available
     tax_comp = None
@@ -1078,8 +1336,23 @@ def main():
         tax_comp.calculate_corporation_tax()
         tax_comp.generate_ct600_mapping()
     
+    # QuickBooks reconciliation data (if QBO exports provided)
+    qbo_rec = None
+    if (args.qbo_accounts or args.qbo_date) and get_reconciliation_data:
+        book_cash = Decimal('0')
+        book_exp = Decimal('0')
+        for code in ('1100', '1101', '1102', '1103'):
+            acc = generator.accounts.get(code)
+            if acc:
+                book_cash += acc.debit - acc.credit
+        for code in ('5200', '5300', '5600'):
+            acc = generator.accounts.get(code)
+            if acc:
+                book_exp += acc.debit - acc.credit
+        qbo_rec = get_reconciliation_data(book_cash, book_exp, args.qbo_accounts, args.qbo_date)
+
     # Generate HTML report
-    html = generate_html_report(generator, args.company, period_end, tax_comp=tax_comp)
+    html = generate_html_report(generator, args.company, period_end, tax_comp=tax_comp, qbo_reconciliation=qbo_rec)
     
     # Output
     output_path = args.output or Path(f"trial_balance_{period_end.isoformat()}.html")

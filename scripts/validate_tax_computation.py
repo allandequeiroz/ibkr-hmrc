@@ -14,9 +14,11 @@ import sys
 from decimal import Decimal
 from pathlib import Path
 
-# Add scripts to path
-REPO_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO_ROOT / "scripts"))
+# Scripts dir for imports (ibkr_trial_balance, tax_computation)
+_SCRIPTS = Path(__file__).resolve().parent
+REPO_ROOT = _SCRIPTS.parent
+if str(_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS))
 
 from tax_computation import TaxComputation
 

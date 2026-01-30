@@ -850,7 +850,7 @@ python scripts/ibkr_trial_balance.py analysis/business.csv \
 
 ### Phase 6: Validation
 
-**File**: `analysis/validate_tax_computation.py` (~200 lines)
+**File**: `scripts/validate_tax_computation.py` (~200 lines)
 
 **Implementation Steps**:
 1. Load same data files as main tool
@@ -889,7 +889,7 @@ python scripts/ibkr_trial_balance.py analysis/business.csv \
 - ✓ **Phase 3: Integration** – Section 104 and TaxComputation wired in `ibkr_trial_balance.py`; `--management-expenses` CLI; STK/OPT fed to Section 104; `flush_all_pending()` after trades.
 - ✓ **Phase 4: Enhanced HTML Report** – Tax Computation Schedule, Interest Relief (ICR), Corporation Tax Liability, Tax Shield Summary, Section 104 Disposals, CT600 Box Mapping, FIFO vs Section 104 variance; meta footer updated.
 - ✓ **Phase 5: Documentation** – ADR-001 Decision 8 added; README updated (output, arguments, file structure, limitation 2).
-- ✓ **Phase 6: Validation** – `analysis/validate_tax_computation.py` created; 6 checks (Section 104 sum, dividend exemption, taxable profit, CT sign, CT600 box 46/500).
+- ✓ **Phase 6: Validation** – `scripts/validate_tax_computation.py` created; 6 checks (Section 104 sum, dividend exemption, taxable profit, CT sign, CT600 box 46/500).
 
 ---
 
@@ -941,7 +941,7 @@ python scripts/ibkr_trial_balance.py analysis/business.csv \
 ### Files to Create
 1. `scripts/section_104_pooling.py` - Section 104 pooling engine
 2. `scripts/tax_computation.py` - Tax computation engine
-3. `analysis/validate_tax_computation.py` - Validation script
+3. `scripts/validate_tax_computation.py` - Validation script
 4. `analysis/management_expenses.csv` - User's additional expenses (user creates)
 
 ### Files to Modify

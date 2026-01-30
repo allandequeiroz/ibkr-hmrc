@@ -1,0 +1,23 @@
+============================================================
+Reconciliation: Trial Balance (IBKR) vs QuickBooks
+============================================================
+Period end: 2026-02-28
+Flex: analysis\business.csv
+QBO bank: C:\dev\ibkr-hmrc\analysis\qbo_accounts.xlsx
+QBO transactions: C:\dev\ibkr-hmrc\analysis\qbo_date.xlsx
+
+--- Bank reconciliation ---
+Book cash (1100+1101+1102+1103):     -149,404.74
+QBO bank (end Balance):              772,686.87
+Difference:                         -922,091.61
+  -> Unreconciled. Note: Book cash is IBKR cash (1101); QBO is linked bank.
+     Match only if same account; else compare IBKR vs bank separately.
+
+--- Expense alignment ---
+Book expenses (5200+5300+5600):         9,863.68
+QBO outflows (sum |negative Amt|):      546,976.82
+Difference:                         -537,113.14
+  -> Variance. Book = IBKR fees/interest only; QBO = all outflows in period.
+     Ensure Cash basis and same period; filter QBO by account if needed.
+
+============================================================

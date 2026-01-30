@@ -143,7 +143,7 @@ This is expected and documented behaviour. Account 1200 is a multi-purpose trans
 ## Documentation Updates
 
 - Updated `scripts/ibkr_trial_balance.py` with inline comments explaining the asset class filter
-- Created validation script `analysis/validate_trial_balance.py` for automated checking
+- Created validation script `scripts/validate_trial_balance.py` for automated checking
 - This discussion file documents the fix and rationale
 
 ## References

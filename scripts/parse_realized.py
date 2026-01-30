@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Parse IBKR Flex Query realized.csv to extract:
 1. Realized Total values grouped by Asset Category (Stocks, Equity and Index Options)
@@ -5,14 +6,19 @@ Parse IBKR Flex Query realized.csv to extract:
 2. Net quantity per symbol from Trades (summing all trade quantities)
    - Identifying symbols with net quantity == 0 vs non-zero
 3. Specifically check IRMD's net quantity
+
+Run from repo root: python scripts/parse_realized.py [--input analysis/realized.csv]
 """
 
+import argparse
 import csv
 import sys
 from collections import defaultdict
 from decimal import Decimal, InvalidOperation
+from pathlib import Path
 
-FILE_PATH = r"c:\dev\ibkr-hmrc\analysis\realized.csv"
+REPO_ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_INPUT = REPO_ROOT / "analysis" / "realized.csv"
 
 
 def parse_decimal(val):
@@ -28,6 +34,15 @@ def parse_decimal(val):
 
 
 def main():
+    ap = argparse.ArgumentParser(description="Parse IBKR Flex realized.csv")
+    ap.add_argument("--input", type=Path, default=DEFAULT_INPUT, help="Path to realized.csv")
+    args = ap.parse_args()
+    file_path = args.input
+
+    if not file_path.exists():
+        print(f"Error: file not found: {file_path}", file=sys.stderr)
+        sys.exit(1)
+
     # =========================================================================
     # PART 1: Realized Total by Asset Category from "Realized & Unrealized
     #         Performance Summary" section
@@ -47,7 +62,7 @@ def main():
     # key: (asset_category, symbol), value: net quantity
     net_quantity = defaultdict(Decimal)
 
-    with open(FILE_PATH, "r", encoding="utf-8-sig") as f:
+    with open(file_path, "r", encoding="utf-8-sig") as f:
         reader = csv.reader(f)
         for row in reader:
             if len(row) < 3:

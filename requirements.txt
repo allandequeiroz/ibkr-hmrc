@@ -43,6 +43,8 @@ cloudscraper>=1.2.71
 # gzip, zipfile, concurrent.futures, threading, subprocess, signal, time, datetime,
 # json, csv, hashlib, os, sys, logging, argparse, configparser, pathlib, typing,
 # collections, re, warnings
+# Owners loan: PDF support (--owners-loan path/to/owners_loan.pdf)
+pdfplumber>=0.10.0
 xlrd>=2.0.1
 
 # Dependencies for Event Farming Subsystem

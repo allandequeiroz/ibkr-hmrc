@@ -333,7 +333,7 @@ Trial balance is ready for use. All fixable issues have been resolved.
 **Files Generated**:
 - `docs/discussions/7_fx_holdings_schedule_filter.md` (fix documentation)
 - `docs/VALIDATION_REPORT_2026-01-30.md` (this report)
-- `analysis/validate_trial_balance.py` (automated validation script)
+- `scripts/validate_trial_balance.py` (automated validation script)
 
 **Trial Balance Status**: Ready for use in FRS 105 micro-entity accounts preparation for CAESARIS DENARII LIMITED.
 

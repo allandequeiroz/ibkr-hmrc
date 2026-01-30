@@ -37,16 +37,20 @@ python ibkr_trial_balance.py <flex_query.csv> \
 | `--period-end` | Yes | Accounting period end date |
 | `--company` | No | Company name for report header |
 | `--output` | No | Output file path (default: `trial_balance_YYYY-MM-DD.html`) |
-| `--management-expenses` | No | CSV of additional management expenses (description, amount_gbp, date) for tax computation |
+| `--management-expenses` | Yes when you have such expenses | CSV of management/deductible expenses to include in the tax computation (description, amount_gbp, date). Include all allowable expenses not already in the Flex data so taxable profit is correct. |
+| `--owners-loan` | No | Excel (owners_loan.xlsx) or **PDF** (owners_loan.pdf) with director's loan movements. Company bank rows post to 1103/2101; U6361921 excluded (in Flex). Use PDF if the spreadsheet uses references/formulas that don't read correctly. |
+| `--qbo-accounts` | No | QBO Transaction Detail by Account (bank). When provided with `--qbo-date`, embeds QuickBooks reconciliation in the same HTML report. |
+| `--qbo-date` | No | QBO Transaction List by Date (expenses). When provided with `--qbo-accounts`, embeds QuickBooks reconciliation in the same HTML report. |
 
 ## Output
 
-HTML report containing:
+One command produces a single HTML report. When `--qbo-accounts` and `--qbo-date` are provided, the report includes:
 
 1. **Trial Balance** - All accounts with debits/credits, grouped by category
 2. **Tax Computation** (if modules loaded) - Taxable profit, dividend exemption, management expenses, interest relief (ICR), Corporation Tax liability, Section 104 disposals, Tax Shield Summary, CT600 box mapping, FIFO vs Section 104 variance
-3. **Holdings Schedule** - Listed investments at cost with FIFO lot detail
-4. **Balance Check** - Confirms debits = credits
+3. **QuickBooks Reconciliation** (if `--qbo-accounts` and/or `--qbo-date` given) - Bank and expense alignment (book vs QBO)
+4. **Holdings Schedule** - Listed investments at cost with FIFO lot detail
+5. **Balance Check** - Confirms debits = credits
 
 ## Chart of Accounts
 
@@ -55,8 +59,10 @@ HTML report containing:
 | 1100 | Cash at Bank - GBP | Debit |
 | 1101 | Cash at Bank - USD | Debit |
 | 1102 | Cash at Bank - Other CCY | Debit |
+| 1103 | Cash at Bank - Other (e.g. Barclays; from owners_loan.xlsx or owners_loan.pdf) | Debit |
 | 1200 | Listed Investments at Cost | Debit |
 | 2100 | Accruals and Deferred Income | Credit |
+| 2101 | Director's / Owner's Loan | Credit |
 | 3000 | Share Capital | Credit |
 | 3100 | Retained Earnings B/F | Credit |
 | 3200 | Profit/(Loss) for Period | Credit |
@@ -144,14 +150,16 @@ Minimum required fields:
 │   ├── ibkr_trial_balance.py          # Main trial balance tool
 │   ├── section_104_pooling.py         # Section 104 pooling for UK tax (CT600)
 │   ├── tax_computation.py             # Tax computation, CT liability, CT600 mapping
-│   └── ibkr_trial_balance-gemini.py   # Alternative parser (Standard Statements)
+│   ├── ibkr_trial_balance-gemini.py   # Alternative parser (Standard Statements)
+│   ├── parse_realized.py              # Realized P/L extraction utility
+│   ├── validate_trial_balance.py      # Trial balance vs IBKR validation
+│   ├── validate_tax_computation.py    # Tax computation validation
+│   ├── qbo_reconciliation.py           # QBO loaders and reconciliation data (used by main script and reconcile_qbo)
+│   └── reconcile_qbo.py                # Standalone reconcile TB vs QuickBooks (text report)
 ├── analysis/
 │   ├── business.csv                    # IBKR Flex Query export (input)
 │   ├── activity.csv                    # IBKR Activity Statement (validation)
 │   ├── realized.csv                    # IBKR Realized Summary (validation)
-│   ├── parse_realized.py              # Realized P/L extraction utility
-│   ├── validate_trial_balance.py      # Trial balance vs IBKR validation
-│   ├── validate_tax_computation.py    # Tax computation validation
 │   └── 16235546_trial_balance.html    # Generated trial balance output
 └── docs/
     ├── ADR-001-trial-balance.md       # Architecture decisions

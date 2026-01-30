@@ -231,7 +231,15 @@ IBKR Flex Query CSV
 
 **Rationale:** FRS 105 trial balance is for financial statements; CT600 requires Section 104 pooling and tax adjustments. Dual tracking (FIFO for accounts, Section 104 for tax) keeps both outputs in one report.
 
-**Consequences:** New modules `section_104_pooling.py` and `tax_computation.py`; optional `--management-expenses` CSV; HTML report includes Tax Computation Schedule, Interest Relief (ICR), CT Liability, Section 104 Disposals, Tax Shield Summary, CT600 Mapping, and FIFO vs Section 104 variance.
+**Consequences:** New modules `section_104_pooling.py` and `tax_computation.py`; `--management-expenses` CSV for all allowable management/deductible expenses not in the Flex data; HTML report includes Tax Computation Schedule, Interest Relief (ICR), CT Liability, Section 104 Disposals, Tax Shield Summary, CT600 Mapping, and FIFO vs Section 104 variance.
+
+### 9. Single-command report with QuickBooks reconciliation (2026-01-30)
+
+**Decision:** One command (`ibkr_trial_balance.py` with optional `--qbo-accounts` and `--qbo-date`) produces a single HTML report containing trial balance, tax computation, and QuickBooks reconciliation (bank and expense alignment). QBO load and comparison logic lives in a shared module (`qbo_reconciliation.py`) used by the main script and by the standalone `reconcile_qbo.py` (text report).
+
+**Rationale:** User need: one run, one file for the accountant. QBO data is additive (reconciliation section); book figures remain from IBKR. Shared module keeps behaviour consistent and changes in one place.
+
+**Consequences:** Optional `--qbo-accounts` and `--qbo-date` on `ibkr_trial_balance.py`; `qbo_reconciliation.py` with loaders and `get_reconciliation_data()`; HTML report includes "QuickBooks Reconciliation" section when those args are provided; `reconcile_qbo.py` refactored to use the same module. Documented in README, QUICKBOOKS_EXPORT.md (§6 Option A/B), and NOTES.md.
 
 ## Future Considerations
 
